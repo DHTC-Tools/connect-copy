@@ -1,0 +1,368 @@
+#!/usr/bin/python
+
+#  File:     skeleton_key
+#
+#  Author:   Suchandra Thapa
+#  e-mail:   sthapa@ci.uchicago.edu
+#
+#
+# Copyright (c) University of Chicago. 2013
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import optparse, os, sys, ConfigParser, getpass, re, urlparse, time, shutil
+
+VERSION = '0.12-osgc'
+CHIRP_SERVER = 'stash.osgconnect.net'
+RUN_TEMPLATE_LOCATION = '/usr/share/skeletonkey/run_job.py'
+OASIS_CONFIG = {'oasis.opensciencegrid.org': {'options': 'url=http://oasis-replica.opensciencegrid.org:8000/cvmfs/oasis,pubkey=opensciencegrid.org.pub,quota_limit=2000,proxies=squid.osgconnect.net:3128', 'key': 'http://stash.osgconnect.net/keys/opensciencegrid.org.pub'}}
+
+def get_directories(config, dir_type):
+  """
+  Get read or write directories and return formatted list
+  """
+  
+  if (config.has_option('Directories', dir_type) and 
+      config.get('Directories', dir_type) != ''):
+    directories = config.get('Directories', dir_type).split(',')
+    directories = map(lambda x: x.strip(), directories)
+    return directories
+  else:
+    return []
+  
+
+def prefix_base(base_dir, path):
+  
+  if path == '/':
+    return base_dir
+  elif path[0] == '/':
+    return os.path.join(base_dir, path[1:])
+  return os.path.join(base_dir, path)
+  
+  
+def set_cvmfs_key(cvmfs_options, key):
+  """
+  Set CVMFS pubkey option in cvmfs_options string, replacing current key if 
+  present
+  """
+  key_file = urlparse.urlparse(key)[2].split('/')[-1]
+  if 'pubkey' not in cvmfs_options:
+    return cvmfs_options + ",pubkey=" + key_file
+  
+  options = ""
+  for opt in cvmfs_options.split(','):
+    if 'pubkey' in opt:
+      options += ",pubkey=" + key_file
+    else:
+      options += "," + opt 
+  # Return options minus the leading , 
+  return options[1:]
+
+def parse_cvmfs_options(config):
+  """
+  Parse CVMFS options and generate a dict containing CVMFS info
+  """
+  cvmfs_info = {}
+  keys = []
+  if not config.has_section('CVMFS'):
+    return OASIS_CONFIG
+  
+  repo_num = 1
+  while True:
+    repo_opt = "repo%s" % repo_num
+    if not config.has_option('CVMFS', repo_opt):
+      # no more repos to add
+      break
+    repo_name = config.get('CVMFS', repo_opt)
+    cvmfs_info[repo_name] = {}
+    opt_name = "repo%s_key" % repo_num
+    if config.has_option('CVMFS', opt_name):
+      cvmfs_info[repo_name]['key'] = config.get('CVMFS', opt_name)
+    else:
+      sys.stderr.write("Missing %s in CVMFS section\n" % opt_name)
+      sys.exit(1)
+      
+    opt_name = "repo%s_options" % repo_num
+    if config.has_option('CVMFS', opt_name):
+      cvmfs_options = config.get('CVMFS', opt_name)
+      cvmfs_options = set_cvmfs_key(cvmfs_options, cvmfs_info[repo_name]['key'])
+      cvmfs_info[repo_name]['options'] = cvmfs_options
+    else:
+      sys.stderr.write("Missing %s in CVMFS section\n" % opt_name)
+      sys.exit(1)
+    repo_num += 1
+  if 'oasis.opensciencegrid.org' not in cvmfs_info:
+    cvmfs_info['oasis.opensciencegrid.org'] = OASIS_CONFIG['oasis.opensciencegrid.org']
+  return cvmfs_info
+
+def set_acl(directory, acls):
+  """
+  Check the acl for a directory and change if needed
+  """
+  acl_file_name = os.path.join(directory, '.__acl')
+  user_auth = 'unix:%s' % getpass.getuser()
+  if not os.path.exists(acl_file_name):
+    acl_file = open(acl_file_name, 'w')
+    acl_file.write("%s %s\n" % (user_auth, acls))
+    acl_file.close()
+    return True
+
+  if os.path.exists(acl_file_name) and not os.path.isfile(acl_file_name):
+    return False
+  
+  acl_file = open(acl_file_name)
+  new_acls = []
+  rewrite_file = False
+  for line in acl_file:
+    if line.startswith(user_auth):
+      cur_acls = line.split(' ')[1]
+      modified_acl = ''
+      acls_present = True
+      for char in acls:
+        if char not in cur_acls:
+          modified_acl += char
+          rewrite_file = True
+      modified_acl += cur_acls
+      new_acls.append("%s %s" % (user_auth, modified_acl))
+    else:
+      new_acls.append(line)
+  acl_file.close()
+  if rewrite_file:
+    os.unlink(acl_file_name)
+    acl_file = open(acl_file_name, 'w')
+    acl_file.write("\n".join(new_acls))
+    acl_file.close()
+  return True
+
+def reset_acls(base_dir, read_dirs, write_dirs):
+  """
+  Check and reset acls in directories as needed
+  """
+  for dir_name in read_dirs:
+    if dir_name.startswith('/'):
+      acl_dir = os.path.join(base_dir, dir_name[1:])
+    else:
+      acl_dir = os.path.join(base_dir, dir_name) 
+    if not set_acl(acl_dir, 'r'):
+      sys.stderr.write("Can't set acls for %s\n" % dir_name)
+
+  for dir_name in write_dirs:
+    if dir_name.startswith('/'):
+      acl_dir = os.path.join(base_dir, dir_name[1:])
+    else:
+      acl_dir = os.path.join(base_dir, dir_name) 
+    if not set_acl(acl_dir, 'rwd'):
+      sys.stderr.write("Can't set acls for %s\n" % dir_name)
+
+def create_chirp_ticket(config):
+  """
+  Create a chirp ticket with the appropriate permissions and return
+  a string with ticket 
+  """
+  if not config.has_section('Directories'):
+    return ""
+    
+  ticket = ""
+  read_directories = get_directories(config, 'read')
+  write_directories = get_directories(config, 'write')
+  ticket_call = "chirp stash.opensciencegrid.net:%s ticket_create -output myticket.ticket " \
+                "-bits 1024 -duration 86400 "  % (os.getuid())
+  base_dir = config.get('Directories', 'export_base')
+  reset_acls(base_dir, read_directories, write_directories)
+  for directory in read_directories:
+    ticket_call += " %s rl " % directory
+    
+  for directory in write_directories:
+    ticket_call += " %s rwl " % directory
+    
+    
+  retcode = os.system(ticket_call)
+  if os.WEXITSTATUS(retcode) != 0:
+    sys.stderr.write("Can't create ticket\n")
+    return None
+  ticket = open('myticket.ticket').read().replace('"', r'\"')  
+  os.unlink('myticket.ticket')
+  return ticket
+
+def get_user_proxy(config):
+  """
+  If specified get user proxy information to place in the job wrapper
+  """
+  if not config.has_option('Application', 'user_proxy'):
+    return ""
+  proxy_name = config.get('Application', 'user_proxy')
+  try:
+    if proxy_name.upper() == 'DEFAULT':
+      proxy_name = os.path.join('/', 'tmp', "x509up_u%s" % os.getuid())
+    proxy = open(proxy_name, 'r').read()
+    return proxy
+  except:
+    sys.stderr.write("Can't read user proxy at %s\n" % proxy_name)
+    sys.exit(1)
+
+def parse_args(job_args):
+  """
+  Parse string with job arguments into a list for inclusion in job wrapper
+  """
+  args = []
+  if job_args == "":
+    return '""'
+  tokens = job_args.split(' ')
+  double_quotes = False
+  single_quotes = False
+  cur_token = ''
+  for token in tokens:
+    if not double_quotes and not single_quotes:
+      if token[0] not in ('"', "'"):
+        args.append(token)
+        cur_token = ''
+      elif token[0] == '"':
+        double_quotes = True
+        cur_token = token[1:]
+      elif token[0] == "'":
+        single_quotes = True
+        cur_token = token[1:]
+    elif double_quotes:
+      if token[-1] != '"':
+        cur_token += " %s" % token
+      elif token[-2:] == '\\"':
+        cur_token += " %s\"" % token[:-2]        
+      else:
+        cur_token += " %s" % token[:-1]
+        args.append(cur_token)
+        cur_token = ''
+        double_quotes = False
+    elif single_quotes:
+      if token[-1] != "'":
+        cur_token += " %s" % token
+      elif token[-2:] == "\\'":
+        cur_token += " %s'" % token[:-2]
+      else:
+        cur_token += " %s" % token[:-1]
+        args.append(cur_token)
+        cur_token = ''
+        single_quotes = False
+  return " ".join(args)
+
+def get_wrapper_template():
+  """
+  Check the parrot config and get the wrapper template based on that
+  """
+  wrapper_location = RUN_TEMPLATE_LOCATION
+  config = ConfigParser.SafeConfigParser()
+  if (not os.path.exists(wrapper_location) or 
+      not os.path.isfile(wrapper_location)):
+    sys.stderr.write("Wrapper template not in specified " \
+                     "location: %s\n" % wrapper_location)
+    sys.exit(1)
+  return open(wrapper_location).read()
+
+def create_job_wrapper(output_file, config):
+  """Generate a job wrapper"""
+  try:
+    template = get_wrapper_template()
+    chirp_ticket = create_chirp_ticket(config)
+    if chirp_ticket is None:
+      sys.stderr.write("Error occurred when generating ticket, exiting...\n")
+      return False
+    template = template.replace('%%%TICKET%%%', 
+                                chirp_ticket)
+    if (config.has_option('Application', 'http_proxy') and 
+        config.get('Application', 'http_proxy') != ''):
+      template = template.replace('%%%WEB_PROXY%%%', 
+                                   config.get('Application', 'http_proxy'))
+    else:
+      template = template.replace('%%%WEB_PROXY%%%', '')
+
+    if (config.has_section('Parrot') and
+        config.has_option('Parrot', 'location') and 
+             config.get('Parrot', 'location') != ''):
+      template = template.replace('%%%PARROT_URL%%%', 
+                                  config.get('Parrot', 'location'))
+    else:
+      template = template.replace('%%%PARROT_URL%%%', 
+                                  'http://stash.osgconnect.net/parrot')
+    if (config.has_section('Application') and
+        config.has_option('Application', 'location') and 
+        config.get('Application', 'location') != ''):
+      template = template.replace('%%%APP_URL%%%', 
+                                  config.get('Application', 'location'))
+    else:
+      template = template.replace('%%%APP_URL%%%',  '""')
+    template = template.replace('%%%JOB_SCRIPT%%%', 
+                                config.get('Application', 'script'))
+    if (config.has_section('Application') and 
+        (config.has_option('Application', 'arguments') and 
+         config.get('Application', 'arguments') != '')):
+      template = template.replace('%%%JOB_ARGS%%%', 
+                                  parse_args(config.get('Application', 
+                                                        'arguments')))
+    else:
+      template = template.replace('%%%JOB_ARGS%%%',  '""')
+    
+    template = template.replace('%%%CVMFS_INFO%%%',
+                                str(parse_cvmfs_options(config)))
+
+    proxy = get_user_proxy(config)
+    template = template.replace('%%%USER_PROXY%%%', proxy)
+
+    if config.has_section('Directories'):
+      template = template.replace('%%%CHIRP_MOUNT%%%',
+                                  "/chirp/stash.opensciencegrid.net:%s" % os.getuid()())
+    open(output_file, 'w').write(template)
+    os.chmod(output_file, 0700)
+  except IOError, ex:
+    sys.stderr.write("Got exception when writing wrapper:\n%s\n" % ex)
+    return False
+  return True
+
+if __name__ == '__main__':
+  parser = optparse.OptionParser(usage='Usage: %prog [options] arg1 arg2', 
+                                 version='%prog ' + VERSION)
+  
+  parser.add_option('-o',
+                    '--output',
+                    action='store',
+                    dest='output_file',
+                    default='run_job.py',
+                    help='Name of job wrapper file generated ')
+  parser.add_option('-c',
+                    '--config-file',
+                    action='store',
+                    dest='config_file',
+                    default='',
+                    help='Configuration file to use')
+  
+  (options, args) = parser.parse_args()
+  
+  if options.config_file == '':
+    parser.exit(msg='Must give a config file')
+  
+  if (not os.path.exists(options.config_file) or 
+      not os.path.isfile(options.config_file)):
+    sys.stderr.write("Config file %s not found, " \
+                     "exiting...\n" % options.config_file)
+    sys.exit(1)
+  
+  config = ConfigParser.SafeConfigParser()
+  config.read(options.config_file)
+  
+  if not config.has_option('Application', 'script'):
+    sys.stderr.write("Must give an script to run\n")
+    sys.exit(1)
+
+  
+  if not create_job_wrapper(options.output_file, config):
+    sys.stderr.write("Can't write job wrapper\n")
+    sys.exit(1)
+
