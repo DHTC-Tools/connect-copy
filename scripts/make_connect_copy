@@ -26,7 +26,7 @@ import sys
 
 VERSION = '0.01-osgc'
 CHIRP_SERVER = 'stash.osgconnect.net'
-COPY_TEMPLATE_LOCATION = '/usr/share/connect-copy/run_job.py'
+COPY_TEMPLATE_LOCATION = '/usr/share/connect-copy/connect_copy'
 
 def create_chirp_ticket():
   """
