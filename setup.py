@@ -17,6 +17,6 @@ setup(name='connect-copy',
       author='Suchandra Thapa',
       author_email='sthapa@ci.uchicago.edu',
       scripts=['scripts/make_connect_copy'],
-      data_files=[('share/connect-copy', ['scripts/connect_copy.py'])]
+      data_files=[('share/connect-copy', ['scripts/connect_copy'])]
       )
 
