@@ -68,8 +68,8 @@ def create_connect_copy():
     template = template.replace('%%%PARROT_URL%%%',
                                 'http://stash.osgconnect.net/parrot')
 
-    open(output_file, 'w').write(template)
-    os.chmod(output_file, 0700)
+    open('connect_copy', 'w').write(template)
+    os.chmod('connect_copy', 0700)
   except IOError, ex:
     sys.stderr.write("Got exception when writing wrapper:\n%s\n" % ex)
     return False
