@@ -35,7 +35,7 @@ def create_chirp_ticket():
   """
 
   ticket = ""
-  ticket_call = "chirp stash.opensciencegrid.net:%s ticket_create -output myticket.ticket " \
+  ticket_call = "chirp stash.osgconnect.net:%s ticket_create -output myticket.ticket " \
                 "-bits 1024 -duration 86400 / rwl" % (os.getuid())
     
   retcode = os.system(ticket_call)
