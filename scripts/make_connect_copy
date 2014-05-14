@@ -28,14 +28,12 @@ VERSION = '0.01-osgc'
 CHIRP_SERVER = 'stash.osgconnect.net'
 COPY_TEMPLATE_LOCATION = '/usr/share/connect-copy/run_job.py'
 
-def create_chirp_ticket(config):
+def create_chirp_ticket():
   """
   Create a chirp ticket with the appropriate permissions and return
   a string with ticket 
   """
-  if not config.has_section('Directories'):
-    return ""
-    
+
   ticket = ""
   ticket_call = "chirp stash.opensciencegrid.net:%s ticket_create -output myticket.ticket " \
                 "-bits 1024 -duration 86400 / rwl" % (os.getuid())
