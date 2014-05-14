@@ -64,9 +64,10 @@ def create_connect_copy():
       return False
     template = template.replace('%%%TICKET%%%', 
                                 chirp_ticket)
-
     template = template.replace('%%%PARROT_URL%%%',
                                 'http://stash.osgconnect.net/parrot')
+    template = template.replace('%%%CHIRP_MOUNT%%%',
+                                "/chirp/stash.osgconnect.net:%s" % os.getuid())
 
     open(output_file, 'w').write(template)
     os.chmod(output_file, 0700)

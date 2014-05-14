@@ -35,8 +35,8 @@ import re
 
 TICKET_CONTENTS = """%%%TICKET%%%
 """
-CATALOG_HOST = 'stash.opensciencegrid.net'
 CHIRP_MOUNT = '%%%CHIRP_MOUNT%%%'
+CATALOG_HOST = 'stash.opensciencegrid.net'
 PARROT_URL = '%%%PARROT_URL%%%'
 VERSION = '0.01-osgc'
 
@@ -70,7 +70,7 @@ def ticket_valid():
         return True
     expiration = time.strptime(match.group(1),
                                "%a %b %d %H:%M:%S %Y")
-    return time.time() > time.mktime(expiration)
+    return time.time() < time.mktime(expiration)
 
 
 def download_tarball(url, path):
@@ -119,6 +119,15 @@ def generate_env(parrot_path):
     job_env['CATALOG_HOST'] = CATALOG_HOST
     return job_env
 
+def fixup_paths(fpath):
+    """
+    Fix paths so that CHIRP_MOUNT or other paths work correctly
+    """
+    if fpath.startswith('CHIRP'):
+        return fpath.replace('CHIRP', CHIRP_MOUNT)
+    else:
+        return os.path.join(os.getcwd(), fpath)
+
 
 def run_copy(temp_dir, args):
     """
@@ -131,9 +140,12 @@ def run_copy(temp_dir, args):
     if TICKET_CONTENTS != "":
         job_args.extend(['-i', 'chirp.ticket'])
     job_args.append('/bin/cp')
+    # fix source and dest paths before changing directory to working dir
+    args[-2] = fixup_paths(args[-2])
+    args[-1] = fixup_paths(args[-1])
     os.chdir(temp_dir)
     if len(args) > 1:
-        job_args.extend(sys.argv[1:])
+        job_args.extend(args)
 
     return subprocess.call(job_args, env=job_env)
 
