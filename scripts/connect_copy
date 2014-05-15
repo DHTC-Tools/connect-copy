@@ -123,7 +123,10 @@ def fixup_paths(fpath):
     """
     Fix paths so that CHIRP_MOUNT or other paths work correctly
     """
-    if fpath.startswith('CHIRP'):
+    if fpath.startswith('-'):
+        # not really a file path
+        return fpath
+    elif fpath.startswith('CHIRP'):
         return fpath.replace('CHIRP', CHIRP_MOUNT)
     else:
         return os.path.join(os.getcwd(), fpath)
@@ -140,12 +143,11 @@ def run_copy(temp_dir, args):
     if TICKET_CONTENTS != "":
         job_args.extend(['-i', 'chirp.ticket'])
     job_args.append('/bin/cp')
-    # fix source and dest paths before changing directory to working dir
-    args[-2] = fixup_paths(args[-2])
-    args[-1] = fixup_paths(args[-1])
+    # fix paths in args before changing to working dir
+    fixed_args = [ fixup_paths(x) for x in args ]
     os.chdir(temp_dir)
     if len(args) > 1:
-        job_args.extend(args)
+        job_args.extend(fixed_args)
 
     return subprocess.call(job_args, env=job_env)
 
