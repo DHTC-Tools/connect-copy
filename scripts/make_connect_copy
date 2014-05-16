@@ -24,7 +24,7 @@ import optparse
 import os
 import sys
 
-VERSION = '0.01-osgc'
+VERSION = '0.02-osgc'
 CHIRP_SERVER = 'stash.osgconnect.net'
 COPY_TEMPLATE_LOCATION = '/usr/share/connect-copy/connect_copy'
 
@@ -36,7 +36,7 @@ def create_chirp_ticket():
 
   ticket = ""
   ticket_call = "chirp stash.osgconnect.net:%s ticket_create -output myticket.ticket " \
-                "-bits 1024 -duration 86400 / rwl" % (os.getuid())
+                "-bits 1024 -duration 604800 / rwl" % (os.getuid())
     
   retcode = os.system(ticket_call)
   if os.WEXITSTATUS(retcode) != 0:
