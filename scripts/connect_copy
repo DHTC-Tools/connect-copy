@@ -38,7 +38,7 @@ TICKET_CONTENTS = """%%%TICKET%%%
 CHIRP_MOUNT = '%%%CHIRP_MOUNT%%%'
 CATALOG_HOST = 'stash.opensciencegrid.net'
 PARROT_URL = '%%%PARROT_URL%%%'
-VERSION = '0.01-osgc'
+VERSION = '0.02-osgc'
 
 
 def write_ticket(directory):
